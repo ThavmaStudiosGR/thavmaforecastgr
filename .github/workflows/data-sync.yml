@@ -1,0 +1,30 @@
+name: sync-meteoalarm-data
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # κάθε 30 λεπτά
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch MeteoAlarm feed (server-side, no CORS issue)
+        run: node scripts/sync-meteoalarm.mjs
+
+      - name: Commit data if changed
+        run: |
+          git config user.name "weather-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/meteoalarm.json
+          git diff --cached --quiet || git commit -m "chore: sync meteoalarm data [skip ci]"
+          git push
