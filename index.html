@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ΚΑΙΡΟΣ LIVE · Ελλάδα</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#070c14;
+    --panel:#0d1522;
+    --panel-2:#111c2c;
+    --line:#1c2b40;
+    --text:#dbe6f2;
+    --muted:#5f7891;
+    --rain:#3fb6e6;
+    --wind:#8ee6c8;
+    --storm:#f5b23e;
+    --quake:#ef5350;
+    --live:#ff4d4d;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:'IBM Plex Sans',system-ui,sans-serif;overflow:hidden;}
+  h1,h2,.display{font-family:'Archivo',system-ui,sans-serif;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+
+  #app{position:relative;width:100vw;height:100vh;}
+  #map{position:absolute;inset:0;}
+  .leaflet-tile-pane{filter:saturate(1.05) brightness(0.95);}
+
+  /* ---------- top bar ---------- */
+  #topbar{
+    position:absolute;top:0;left:0;right:0;z-index:1000;
+    display:flex;align-items:center;gap:18px;
+    padding:10px 18px;
+    background:linear-gradient(180deg,rgba(7,12,20,.92),rgba(7,12,20,0));
+    pointer-events:none;
+  }
+  #topbar > *{pointer-events:auto;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--live);
+    box-shadow:0 0 8px var(--live);animation:blink 1.6s infinite;}
+  @keyframes blink{0%,55%{opacity:1;}56%,100%{opacity:.25;}}
+  .brand h1{font-size:17px;font-weight:800;letter-spacing:.02em;margin:0;color:#fff;}
+  .brand span{font-size:11px;color:var(--muted);}
+  #clock{font-size:13px;color:var(--muted);margin-left:4px;}
+
+  .toggles{display:flex;gap:8px;margin-left:auto;}
+  .toggles button{
+    background:var(--panel);border:1px solid var(--line);color:var(--text);
+    padding:7px 12px;border-radius:7px;font-size:12px;cursor:pointer;
+    font-family:'IBM Plex Sans',sans-serif;display:flex;align-items:center;gap:6px;
+    transition:border-color .15s, color .15s;
+  }
+  .toggles button.active{border-color:var(--rain);color:#fff;}
+  .toggles button:hover{border-color:var(--muted);}
+  .swatch{width:8px;height:8px;border-radius:2px;}
+
+  /* ---------- side panel ---------- */
+  #side{
+    position:absolute;top:64px;right:14px;bottom:96px;width:290px;z-index:900;
+    display:flex;flex-direction:column;gap:12px;
+    pointer-events:none;
+  }
+  #side > *{pointer-events:auto;}
+  .panel{
+    background:rgba(13,21,34,.88);border:1px solid var(--line);border-radius:10px;
+    backdrop-filter:blur(6px);overflow:hidden;
+  }
+  .panel h2{
+    font-size:11px;letter-spacing:.06em;color:var(--muted);margin:0;
+    padding:9px 12px;border-bottom:1px solid var(--line);
+  }
+  #stations{flex:1;overflow-y:auto;}
+  #stations table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  #stations td{padding:6px 12px;border-bottom:1px solid rgba(255,255,255,.04);}
+  #stations td.city{color:var(--text);}
+  #stations td.num{text-align:right;color:var(--rain);white-space:nowrap;}
+  #stations tr:last-child td{border-bottom:none;}
+
+  #camPanel{height:190px;position:relative;}
+  #camPanel .camFrame{position:absolute;inset:30px 0 0 0;background:#000;}
+  #camPanel .camFrame img, #camPanel .camFrame iframe{width:100%;height:100%;border:0;object-fit:cover;display:block;}
+  #camLabel{position:absolute;top:9px;left:12px;right:12px;font-size:11px;
+    display:flex;justify-content:space-between;color:var(--muted);}
+  #camLabel b{color:var(--text);font-weight:500;}
+
+  #forecastPanel .body{padding:10px 12px;font-size:12.5px;line-height:1.5;color:var(--text);}
+  #forecastPanel .src{color:var(--muted);font-size:10.5px;margin-top:6px;display:block;}
+
+  /* ---------- quake flash ---------- */
+  #quakeFlash{
+    position:absolute;inset:0;z-index:1200;pointer-events:none;
+    border:0 solid var(--quake);opacity:0;
+  }
+  #quakeFlash.hit{animation:shake .9s ease;}
+  @keyframes shake{
+    0%{border-width:0;opacity:0;}
+    8%{border-width:10px;opacity:1;}
+    100%{border-width:0;opacity:0;}
+  }
+  #quakeBanner{
+    position:absolute;left:50%;top:64px;transform:translate(-50%,-16px);
+    background:var(--quake);color:#1a0000;font-weight:700;font-size:13px;
+    padding:9px 18px;border-radius:8px;z-index:1300;opacity:0;
+    transition:transform .35s ease, opacity .35s ease;pointer-events:none;
+  }
+  #quakeBanner.show{opacity:1;transform:translate(-50%,0);}
+
+  /* ---------- bottom alert ticker (MeteoAlarm style) ---------- */
+  #ticker{
+    position:absolute;left:0;right:0;bottom:0;z-index:1000;height:64px;
+    background:#0a1220;border-top:1px solid var(--line);
+    display:flex;align-items:stretch;
+  }
+  #ticker .tag{
+    flex:0 0 auto;width:150px;background:var(--storm);color:#241700;
+    display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:13px;letter-spacing:.03em;
+  }
+  #ticker .track{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;}
+  #ticker .track span{
+    position:absolute;white-space:nowrap;font-size:13px;color:var(--text);
+    padding-left:100%;animation:scroll 32s linear infinite;
+  }
+  @keyframes scroll{from{transform:translateX(0);}to{transform:translateX(-200%);}}
+
+  /* ---------- radar sweep decoration ---------- */
+  #sweep{
+    position:absolute;bottom:78px;left:14px;width:46px;height:46px;z-index:900;
+    border-radius:50%;border:1px solid var(--line);background:rgba(13,21,34,.7);
+  }
+  #sweep .arm{
+    position:absolute;top:50%;left:50%;width:50%;height:1px;
+    background:linear-gradient(90deg,var(--rain),transparent);
+    transform-origin:0 0;animation:spin 4s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  @media (max-width:760px){
+    #side{width:220px;}
+    #camPanel{height:140px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .brand .dot, #sweep .arm{animation:none;}
+    #ticker .track span{animation-duration:60s;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+
+  <div id="topbar">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <h1>ΚΑΙΡΟΣ LIVE — ΕΛΛΑΔΑ</h1>
+        <span>ραντάρ βροχής · σεισμοί · κεραυνοί · κάμερες</span>
+      </div>
+    </div>
+    <span id="clock" class="mono"></span>
+    <div class="toggles">
+      <button id="btnRadar" class="active"><span class="swatch" style="background:var(--rain)"></span>Ραντάρ</button>
+      <button id="btnWind"><span class="swatch" style="background:var(--wind)"></span>Άνεμος</button>
+      <button id="btnQuake" class="active"><span class="swatch" style="background:var(--quake)"></span>Σεισμοί</button>
+      <button id="btnTour" class="active"><span class="swatch" style="background:#fff"></span>Auto</button>
+    </div>
+  </div>
+
+  <div id="side">
+    <div class="panel" id="stationsPanel" style="max-height:38%;display:flex;flex-direction:column;">
+      <h2>ΣΤΑΘΜΟΙ — LIVE</h2>
+      <div id="stations"><table><tbody id="stationsBody"></tbody></table></div>
+    </div>
+
+    <div class="panel" id="camPanel">
+      <h2 style="position:absolute;z-index:2;background:transparent;border:0;padding:0;display:none;"></h2>
+      <div id="camLabel"><b id="camName">—</b><span id="camIndex"></span></div>
+      <div class="camFrame" id="camFrame"></div>
+    </div>
+
+    <div class="panel" id="forecastPanel">
+      <h2>ΠΡΟΓΝΩΣΗ ΗΜΕΡΑΣ</h2>
+      <div class="body" id="forecastBody">
+        Χώρος για σύνοψη πρόγνωσης. Δεν αντλείται αυτόματα από τρίτη σελίδα
+        (βλ. σημείωση στο README) — συμπλήρωσέ το μέσω <span class="mono">data/forecast.json</span>
+        ή ενσωμάτωσε επίσημο embed αν υπάρχει.
+        <span class="src">πηγή: —</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="sweep"><div class="arm"></div></div>
+  <div id="quakeFlash"></div>
+  <div id="quakeBanner"></div>
+
+  <div id="ticker">
+    <div class="tag">METEOALARM</div>
+    <div class="track"><span id="tickerText" class="mono">Φόρτωση ειδοποιήσεων…</span></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* =========================================================
+   ΡΥΘΜΙΣΕΙΣ — άλλαξε ελεύθερα
+   ========================================================= */
+
+// Σταθμοί/πόλεις για ζωντανά δεδομένα (Open-Meteo, δωρεάν, χωρίς key)
+// και για την αυτόματη περιήγηση της κάμερας/χάρτη.
+const TOUR_STOPS = [
+  {name:'Αθήνα',        lat:37.98, lon:23.73, zoom:9},
+  {name:'Θεσσαλονίκη',  lat:40.64, lon:22.94, zoom:9},
+  {name:'Πάτρα',        lat:38.25, lon:21.73, zoom:9},
+  {name:'Ηράκλειο',     lat:35.34, lon:25.13, zoom:9},
+  {name:'Ιωάννινα',     lat:39.66, lon:20.85, zoom:9},
+  {name:'Καβάλα',       lat:40.94, lon:24.40, zoom:9},
+  {name:'Ρόδος',        lat:36.43, lon:28.22, zoom:9},
+  {name:'Κέρκυρα',      lat:39.62, lon:19.92, zoom:9},
+  {name:'Καλαμάτα',     lat:37.04, lon:22.11, zoom:9},
+  {name:'Βόλος',        lat:39.36, lon:22.94, zoom:9},
+];
+
+// Κάμερες: βάλε εδώ πραγματικά public links.
+// type:'img'    -> στατικό snapshot που ανανεώνεται (πχ IP κάμερα λιμανιού)
+// type:'iframe' -> ενσωματωμένο live player (πχ επίσημο YouTube live embed
+//                  ενός καναλιού που το επιτρέπει)
+const CAMERAS = [
+  { name:'Παράδειγμα — βάλε κάμερα 1', type:'img',
+    src:'https://via.placeholder.com/640x360/0a1220/5f7891?text=Camera+1+URL+here' },
+  { name:'Παράδειγμα — βάλε κάμερα 2', type:'img',
+    src:'https://via.placeholder.com/640x360/0a1220/5f7891?text=Camera+2+URL+here' },
+];
+
+const GREECE_BBOX = { minLat:34.0, maxLat:42.0, minLon:19.0, maxLon:30.0 };
+
+// Αφήνεται κενό επίτηδες: δεν υπάρχει επίσημο δημόσιο endpoint κεραυνών.
+// Δες τη σημείωση στο README για τις πραγματικές επιλογές.
+const LIGHTNING_WS_URL = '';
+
+// Ο φάκελος data/ γεμίζει από το δεύτερο GitHub Action (data-sync.yml)
+// που κάνει το server-side fetch του MeteoAlarm feed (αποφεύγει CORS).
+const METEOALARM_LOCAL = 'data/meteoalarm.json';
+
+/* =========================================================
+   ΧΑΡΤΗΣ
+   ========================================================= */
+const map = L.map('map', {
+  zoomControl:false, attributionControl:true,
+}).setView([38.9, 23.7], 6);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom:18,
+  attribution:'&copy; OpenStreetMap &copy; CARTO'
+}).addTo(map);
+
+L.control.zoom({position:'bottomright'}).addTo(map);
+
+/* -------- clock -------- */
+function tickClock(){
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('el-GR', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* =========================================================
+   AUTO-TOUR (κινείται μόνο του, σταματά όταν επεμβαίνει ο χρήστης
+   ή όταν χτυπήσει σεισμός)
+   ========================================================= */
+let tourEnabled = true;
+let tourIdx = 0;
+let userIdleTimer = null;
+let tourTimer = null;
+
+function stopTour(temporary){
+  clearInterval(tourTimer); tourTimer = null;
+  if(!temporary) tourEnabled = false;
+}
+function startTour(){
+  if(!tourEnabled) return;
+  clearInterval(tourTimer);
+  tourTimer = setInterval(()=>{
+    tourIdx = (tourIdx+1) % TOUR_STOPS.length;
+    goToStop(tourIdx);
+  }, 20000);
+}
+function goToStop(i){
+  const s = TOUR_STOPS[i];
+  map.flyTo([s.lat, s.lon], s.zoom, {duration:2.2});
+  setCamera(i % CAMERAS.length);
+}
+document.getElementById('btnTour').addEventListener('click', (e)=>{
+  tourEnabled = !tourEnabled;
+  e.currentTarget.classList.toggle('active', tourEnabled);
+  if(tourEnabled) startTour(); else stopTour();
+});
+// Ο χρήστης παίρνει προσωρινά τον έλεγχο· η περιήγηση ξαναρχίζει μετά από αδράνεια
+map.on('dragstart zoomstart', ()=>{
+  stopTour(true);
+  clearTimeout(userIdleTimer);
+  userIdleTimer = setTimeout(()=>{ if(tourEnabled) startTour(); }, 25000);
+});
+startTour();
+
+/* =========================================================
+   ΡΑΝΤΑΡ ΒΡΟΧΗΣ — RainViewer (δημόσιο, χωρίς key)
+   https://rainviewer.com — υποχρεωτική αναφορά πηγής
+   ========================================================= */
+let radarOn = true;
+let radarFrames = [];
+let radarLayer = null;
+let radarFrameIdx = 0;
+
+async function loadRadar(){
+  try{
+    const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    const data = await res.json();
+    radarFrames = data.radar.past.slice(-6); // τελευταίες ~1ω
+    radarFrames.host = data.host;
+    if(radarOn) showRadarFrame(radarFrames.length-1);
+  }catch(e){ console.warn('RainViewer unavailable', e); }
+}
+function showRadarFrame(i){
+  if(!radarFrames.length) return;
+  if(radarLayer) map.removeLayer(radarLayer);
+  const f = radarFrames[i];
+  radarLayer = L.tileLayer(`${radarFrames.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+    opacity:0.65, zIndex:450
+  }).addTo(map);
+}
+setInterval(()=>{
+  if(!radarOn || !radarFrames.length) return;
+  radarFrameIdx = (radarFrameIdx+1) % radarFrames.length;
+  showRadarFrame(radarFrameIdx);
+}, 700);
+loadRadar();
+setInterval(loadRadar, 10*60*1000);
+
+document.getElementById('btnRadar').addEventListener('click', (e)=>{
+  radarOn = !radarOn;
+  e.currentTarget.classList.toggle('active', radarOn);
+  if(!radarOn && radarLayer) map.removeLayer(radarLayer);
+  else showRadarFrame(radarFrameIdx);
+});
+
+/* =========================================================
+   ΑΝΕΜΟΣ — επίσημο embed της Windy (δεν χρειάζεται key,
+   επιτρεπόμενη χρήση μέσω του δικού τους widget)
+   ========================================================= */
+let windPanel = null;
+document.getElementById('btnWind').addEventListener('click', (e)=>{
+  const on = e.currentTarget.classList.toggle('active');
+  if(on){
+    windPanel = L.DomUtil.create('div');
+    windPanel.style.cssText = 'position:absolute;left:14px;top:64px;width:340px;height:230px;'+
+      'z-index:950;border:1px solid var(--line);border-radius:10px;overflow:hidden;';
+    windPanel.innerHTML = `<iframe title="wind" style="width:100%;height:100%;border:0"
+      src="https://embed.windy.com/embed2.html?lat=38.9&lon=23.7&zoom=6&level=surface&overlay=wind&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1"></iframe>`;
+    document.getElementById('app').appendChild(windPanel);
+  } else if(windPanel){
+    windPanel.remove(); windPanel = null;
+  }
+});
+
+/* =========================================================
+   ΣΕΙΣΜΟΙ — USGS live feed (δημόσιο GeoJSON, χωρίς key)
+   φιλτραρισμένο στο γεωγραφικό πλαίσιο της Ελλάδας
+   ========================================================= */
+let quakeEnabled = true;
+const seenQuakeIds = new Set();
+let firstQuakePoll = true;
+const quakeLayer = L.layerGroup().addTo(map);
+
+function inGreece(lat, lon){
+  return lat>=GREECE_BBOX.minLat && lat<=GREECE_BBOX.maxLat &&
+         lon>=GREECE_BBOX.minLon && lon<=GREECE_BBOX.maxLon;
+}
+function magColor(m){
+  if(m>=5) return '#ef5350';
+  if(m>=3.5) return '#f5b23e';
+  return '#f6e58d';
+}
+function renderQuake(f){
+  const [lon, lat] = f.geometry.coordinates;
+  const m = f.properties.mag || 0;
+  L.circleMarker([lat,lon], {
+    radius:4+m*2.2, color:magColor(m), weight:1, fillOpacity:.35
+  }).bindTooltip(`M${m.toFixed(1)} — ${f.properties.place}`).addTo(quakeLayer);
+}
+function showQuakeBanner(text){
+  const el = document.getElementById('quakeBanner');
+  el.textContent = text;
+  el.classList.add('show');
+  document.getElementById('quakeFlash').classList.remove('hit');
+  void document.getElementById('quakeFlash').offsetWidth; // restart animation
+  document.getElementById('quakeFlash').classList.add('hit');
+  setTimeout(()=>el.classList.remove('show'), 8000);
+}
+async function pollQuakes(){
+  if(!quakeEnabled) return;
+  try{
+    const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
+    const data = await res.json();
+    quakeLayer.clearLayers();
+    const local = data.features.filter(f=>{
+      const [lon,lat] = f.geometry.coordinates;
+      return inGreece(lat,lon);
+    });
+    local.forEach(renderQuake);
+
+    if(firstQuakePoll){
+      local.forEach(f=>seenQuakeIds.add(f.id));
+      firstQuakePoll = false;
+      return;
+    }
+    const fresh = local.filter(f=>!seenQuakeIds.has(f.id));
+    fresh.forEach(f=>seenQuakeIds.add(f.id));
+    if(fresh.length){
+      fresh.sort((a,b)=>b.properties.mag - a.properties.mag);
+      const top = fresh[0];
+      const [lon,lat] = top.geometry.coordinates;
+      stopTour(true);
+      map.flyTo([lat,lon], 8, {duration:1.6});
+      showQuakeBanner(`ΣΕΙΣΜΟΣ M${top.properties.mag.toFixed(1)} — ${top.properties.place}`);
+      clearTimeout(userIdleTimer);
+      userIdleTimer = setTimeout(()=>{ if(tourEnabled) startTour(); }, 30000);
+    }
+  }catch(e){ console.warn('USGS feed unavailable', e); }
+}
+pollQuakes();
+setInterval(pollQuakes, 60*1000);
+document.getElementById('btnQuake').addEventListener('click', (e)=>{
+  quakeEnabled = !quakeEnabled;
+  e.currentTarget.classList.toggle('active', quakeEnabled);
+  if(!quakeEnabled) quakeLayer.clearLayers();
+});
+
+/* =========================================================
+   ΚΕΡΑΥΝΟΙ — προαιρετικό, χρειάζεται πραγματική πηγή δεδομένων.
+   Δες README: δεν υπάρχει σταθερό δωρεάν public API, γι' αυτό
+   μένει σαν έτοιμη «υποδοχή» (plug-in) για WebSocket feed.
+   ========================================================= */
+function drawStrike(lat, lon){
+  const icon = L.divIcon({
+    className:'', html:'<div style="font-size:20px;filter:drop-shadow(0 0 6px #fff176)">⚡</div>',
+    iconSize:[20,20], iconAnchor:[10,10]
+  });
+  const m = L.marker([lat,lon], {icon}).addTo(map);
+  setTimeout(()=>map.removeLayer(m), 4000);
+}
+if(LIGHTNING_WS_URL){
+  try{
+    const ws = new WebSocket(LIGHTNING_WS_URL);
+    ws.onmessage = (ev)=>{
+      try{
+        const d = JSON.parse(ev.data); // προσάρμοσε στο σχήμα του feed σου
+        if(d.lat && d.lon && inGreece(d.lat, d.lon)) drawStrike(d.lat, d.lon);
+      }catch(_e){}
+    };
+  }catch(e){ console.warn('Lightning feed failed to connect', e); }
+}
+
+/* =========================================================
+   ΣΤΑΘΜΟΙ — Open-Meteo (δωρεάν, χωρίς key, CORS ok)
+   ========================================================= */
+async function loadStations(){
+  const body = document.getElementById('stationsBody');
+  const rows = await Promise.all(TOUR_STOPS.map(async s=>{
+    try{
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${s.lat}&longitude=${s.lon}`+
+        `&current=temperature_2m,wind_speed_10m,precipitation&timezone=auto`;
+      const r = await fetch(url);
+      const d = await r.json();
+      const c = d.current;
+      return `<tr><td class="city">${s.name}</td>
+        <td class="num mono">${c.temperature_2m.toFixed(0)}°C</td>
+        <td class="num mono">${c.wind_speed_10m.toFixed(0)}km/h</td>
+        <td class="num mono">${c.precipitation.toFixed(1)}mm</td></tr>`;
+    }catch(e){
+      return `<tr><td class="city">${s.name}</td><td colspan="3" class="num mono">—</td></tr>`;
+    }
+  }));
+  body.innerHTML = rows.join('');
+}
+loadStations();
+setInterval(loadStations, 10*60*1000);
+
+/* =========================================================
+   ΚΑΜΕΡΕΣ — auto-rotate
+   ========================================================= */
+function setCamera(i){
+  const cam = CAMERAS[i];
+  if(!cam) return;
+  document.getElementById('camName').textContent = cam.name;
+  document.getElementById('camIndex').textContent = `${i+1}/${CAMERAS.length}`;
+  const frame = document.getElementById('camFrame');
+  frame.innerHTML = cam.type === 'iframe'
+    ? `<iframe src="${cam.src}" allow="autoplay" title="${cam.name}"></iframe>`
+    : `<img src="${cam.src}" alt="${cam.name}">`;
+}
+setCamera(0);
+
+/* =========================================================
+   METEOALARM — προσπάθεια απευθείας fetch, αλλιώς τοπικό
+   αρχείο που γεμίζει το data-sync.yml (server-side, χωρίς CORS)
+   ========================================================= */
+async function loadAlerts(){
+  const el = document.getElementById('tickerText');
+  try{
+    const r = await fetch(METEOALARM_LOCAL, {cache:'no-store'});
+    if(!r.ok) throw new Error('no local file yet');
+    const items = await r.json();
+    el.textContent = items.length
+      ? items.map(i=>`⚠ ${i.title}`).join('     •     ')
+      : 'Δεν υπάρχουν ενεργές ειδοποιήσεις MeteoAlarm για την Ελλάδα.';
+  }catch(e){
+    el.textContent = 'Ειδοποιήσεις MeteoAlarm: εκκρεμεί συγχρονισμός (δες data-sync.yml στο README).';
+  }
+}
+loadAlerts();
+setInterval(loadAlerts, 15*60*1000);
+</script>
+</body>
+</html>
